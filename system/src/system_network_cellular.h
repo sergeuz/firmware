@@ -87,11 +87,11 @@ protected:
 
 public:
 
-    void start_listening() override
+    void start_listening_with_console() override
     {
         CellularSetupConsoleConfig config;
         CellularSetupConsole console(config);
-        ManagedNetworkInterface::start_listening(console);
+        ManagedNetworkInterface::start_listening(&console);
     }
 
     bool listening() override

@@ -26,6 +26,7 @@
 #include "system_event.h"
 #include "system_cloud_internal.h"
 #include "system_network.h"
+#include "system_mode.h"
 #include "system_threading.h"
 #include "system_rgbled.h"
 
@@ -134,9 +135,9 @@ protected:
 
     virtual network_interface_t network_interface() override { return 0; }
 
-    virtual void start_listening()=0;
+    virtual void start_listening_with_console()=0;
 
-    template<typename T> void start_listening(SystemSetupConsole<T>& console)
+    void start_listening(AbstractSystemSetupConsole* console = nullptr)
     {
         bool started = SPARK_WLAN_STARTED;
         WLAN_SMART_CONFIG_FINISHED = 0;
@@ -192,7 +193,9 @@ protected:
                     loop = now;
                     system_notify_event(wifi_listen_update, now-start);
                 }
-                console.loop();
+                if (console) {
+                    console->loop();
+                }
             }
 #if PLATFORM_THREADING
             if (!APPLICATION_THREAD_CURRENT()) {
@@ -472,7 +475,11 @@ public:
     {
         if (WLAN_SMART_CONFIG_START)
         {
-            start_listening();
+            if (SPARK_OPTION_SERIAL_CONSOLE_ENABLED) {
+                start_listening_with_console();
+            } else {
+                start_listening();
+            }
         }
 
         // Complete Smart Config Process:

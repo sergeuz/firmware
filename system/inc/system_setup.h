@@ -55,7 +55,14 @@ struct WiFiSetupConsoleConfig : SystemSetupConsoleConfig
 };
 #endif
 
-template<typename Config> class SystemSetupConsole
+class AbstractSystemSetupConsole {
+public:
+    virtual ~AbstractSystemSetupConsole() = default;
+
+    virtual void loop() = 0;
+};
+
+template<typename Config> class SystemSetupConsole: public AbstractSystemSetupConsole
 {
 public:
     SystemSetupConsole(Config& config);
