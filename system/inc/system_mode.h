@@ -40,8 +40,16 @@ namespace spark {
             ENABLED =1,
         };
     }
-
+    enum class SystemOption {
+        // Whether setup over serial is enabled in listening mode
+        SERIAL_CONSOLE_ENABLED = 10
+    };
 }
+
+extern volatile bool SPARK_OPTION_SERIAL_CONSOLE_ENABLED;
+
+int system_set_option(spark::SystemOption option, const void *data, int size);
+int system_get_option(spark::SystemOption option, void *data, int size, int *actualSize = nullptr);
 
 void system_thread_set_state(spark::feature::State feature, void* reserved);
 spark::feature::State system_thread_get_state(void*);

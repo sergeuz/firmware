@@ -19,8 +19,41 @@
 
 #include "system_mode.h"
 #include "system_task.h"
+
 static System_Mode_TypeDef current_mode = DEFAULT;
 
+volatile bool SPARK_OPTION_SERIAL_CONSOLE_ENABLED = true;
+
+namespace {
+
+// Helper functions for primitive option types
+template<typename T1, typename T2> // T1 - Exposed type, T2 - Internal type
+inline int set_option(T2 &value, const void *data, int size)
+{
+    if (size != sizeof(T1)) {
+        return -1; // Invalid buffer size
+    }
+    value = *static_cast<const T1*>(data);
+    return 0;
+}
+
+template<typename T1, typename T2>
+inline int get_option(T2 value, void *data, int size, int *actualSize)
+{
+    if (actualSize) {
+        *actualSize = sizeof(T1);
+    }
+    if (!data) {
+        return 0; // Only return size of the option data
+    }
+    if (size != sizeof(T1)) {
+        return -1; // Invalid buffer size
+    }
+    *static_cast<T1*>(data) = (T1)value;
+    return 0;
+}
+
+} // namespace
 
 void set_system_mode(System_Mode_TypeDef mode)
 {
@@ -65,6 +98,25 @@ System_Mode_TypeDef system_mode()
     return current_mode;
 }
 
+int system_set_option(spark::SystemOption option, const void *data, int size)
+{
+    switch (option) {
+    case spark::SystemOption::SERIAL_CONSOLE_ENABLED:
+        return set_option<bool>(SPARK_OPTION_SERIAL_CONSOLE_ENABLED, data, size);
+    default:
+        return -1; // Invalid option
+    }
+}
+
+int system_get_option(spark::SystemOption option, void *data, int size, int *actualSize)
+{
+    switch (option) {
+    case spark::SystemOption::SERIAL_CONSOLE_ENABLED:
+        return get_option<bool>(SPARK_OPTION_SERIAL_CONSOLE_ENABLED, data, size, actualSize);
+    default:
+        return -1; // Invalid option
+    }
+}
 
 #if PLATFORM_THREADING
 

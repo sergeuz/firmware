@@ -48,7 +48,45 @@
 
 class Stream;
 
-class SystemClass {
+class SystemOptions {
+public:
+    virtual ~SystemOptions() = default;
+
+    static System_Mode_TypeDef startupMode() {
+        return system_mode();
+    }
+
+    static bool systemThread() {
+        return system_thread_get_state(nullptr);
+    }
+
+    static bool serialConsole() {
+        bool enabled = false;
+        system_get_option(spark::SystemOption::SERIAL_CONSOLE_ENABLED, &enabled, sizeof(enabled));
+        return enabled;
+    }
+
+    static void serialConsole(bool enabled) {
+        system_set_option(spark::SystemOption::SERIAL_CONSOLE_ENABLED, &enabled, sizeof(enabled));
+    }
+
+protected:
+    // Helper constants to mimic SYSTEM_THREAD(ENABLED)-alike usage without extra typing work
+    enum {
+        DISABLED = 0,
+        ENABLED = 1
+    };
+
+    static void startupMode(System_Mode_TypeDef mode) {
+        set_system_mode(mode);
+    }
+
+    static void systemThread(bool enabled) {
+        system_thread_set_state(enabled ? spark::feature::ENABLED : spark::feature::DISABLED, nullptr);
+    }
+};
+
+class SystemClass: public SystemOptions {
 public:
 
     SystemClass(System_Mode_TypeDef mode = DEFAULT) {
@@ -239,11 +277,20 @@ private:
 
 };
 
+class SystemSetupInitializer: public SystemOptions {
+public:
+    SystemSetupInitializer();
+};
+
 extern SystemClass System;
 
 #define SYSTEM_MODE(mode)  SystemClass SystemMode(mode);
 
 #define SYSTEM_THREAD(state) STARTUP(system_thread_set_state(spark::feature::state, NULL));
+
+#define SYSTEM_SETUP() \
+        ::SystemSetupInitializer __systemSetupInitializer_##__COUNTER__; \
+        ::SystemSetupInitializer::SystemSetupInitializer()
 
 #define waitFor(condition, timeout) System.waitCondition([]{ return (condition)(); }, (timeout))
 #define waitUntil(condition) System.waitCondition([]{ return (condition)(); })
