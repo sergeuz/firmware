@@ -27,6 +27,7 @@
 #include "servo_hal.h"
 #include "gpio_hal.h"
 #include "pinmap_impl.h"
+#include "timer_info.h"
 
 /* Private typedef -----------------------------------------------------------*/
 
@@ -129,6 +130,10 @@ void HAL_Servo_Attach(uint16_t pin)
 
     TIM_ARRPreloadConfig(PIN_MAP[pin].timer_peripheral, ENABLE);
 
+    // Set channel flag
+    STM32_Advanced_Timer_Info* timer_info = (STM32_Advanced_Timer_Info*)STM32_Timer_Info_For_Pin(pin);
+    timer_info->active_channel_flags |= STM32_Timer_Channel_Mask(PIN_MAP[pin].timer_ch);
+
     // TIM enable counter
     TIM_Cmd(PIN_MAP[pin].timer_peripheral, ENABLE);
 
@@ -142,9 +147,36 @@ void HAL_Servo_Attach(uint16_t pin)
 
 void HAL_Servo_Detach(uint16_t pin)
 {
-    // TIM disable counter
-    STM32_Pin_Info* PIN_MAP = HAL_Pin_Map();
-    TIM_Cmd(PIN_MAP[pin].timer_peripheral, DISABLE);
+    const STM32_Pin_Info* pin_info = HAL_Pin_Map() + pin;
+
+    // Reset channel's CCR register to 0 (no duty cycle)
+    switch (pin_info->timer_ch)
+    {
+        case TIM_Channel_1:
+            TIM_SetCompare1(pin_info->timer_peripheral, 0);
+            break;
+        case TIM_Channel_2:
+            TIM_SetCompare2(pin_info->timer_peripheral, 0);
+            break;
+        case TIM_Channel_3:
+            TIM_SetCompare3(pin_info->timer_peripheral, 0);
+            break;
+        case TIM_Channel_4:
+            TIM_SetCompare4(pin_info->timer_peripheral, 0);
+            break;
+        default:
+            break;
+    }
+
+    // Clear channel flag
+    STM32_Advanced_Timer_Info* timer_info = (STM32_Advanced_Timer_Info*)STM32_Timer_Info_For_Pin(pin);
+    timer_info->active_channel_flags &= ~(STM32_Timer_Channel_Mask(pin_info->timer_ch));
+
+    if (!timer_info->active_channel_flags)
+    {
+        // TIM disable counter
+        TIM_Cmd(pin_info->timer_peripheral, DISABLE);
+    }
 }
 
 void HAL_Servo_Write_Pulse_Width(uint16_t pin, uint16_t pulseWidth)
