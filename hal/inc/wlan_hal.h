@@ -128,6 +128,8 @@ typedef enum {
     WLAN_SEC_WEP,
     WLAN_SEC_WPA,
     WLAN_SEC_WPA2,
+    WLAN_SEC_WPA_ENT,
+    WLAN_SEC_WPA2_ENT,
     WLAN_SEC_NOT_SET = 0xFF
 } WLanSecurityType;
 
@@ -149,6 +151,13 @@ typedef struct {
     WLanSecurityCipher cipher;
     unsigned channel;
     unsigned flags;
+    // EAP-TLS
+    const char* key;
+    unsigned key_len;
+    const char* cert;
+    unsigned cert_len;
+    const char* ca_cert;
+    unsigned ca_cert_len;
 } WLanCredentials;
 
 #define WLAN_SET_CREDENTIALS_FLAGS_DRY_RUN  (1<<0)

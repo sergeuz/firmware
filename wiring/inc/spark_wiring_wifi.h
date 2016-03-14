@@ -44,7 +44,9 @@ enum SecurityType {
     UNSEC = WLAN_SEC_UNSEC,
     WEP = WLAN_SEC_WEP,
     WPA = WLAN_SEC_WPA,
-    WPA2 = WLAN_SEC_WPA2
+    WPA2 = WLAN_SEC_WPA2,
+    WPA_ENT = WLAN_SEC_WPA_ENT,
+    WPA2_ENT = WLAN_SEC_WPA2_ENT
 };
 
 class WiFiClass : public NetworkClass
@@ -167,6 +169,24 @@ public:
         creds.ssid_len = ssidLen;
         creds.password = password;
         creds.password_len = passwordLen;
+        creds.security = WLanSecurityType(security);
+        creds.cipher = WLanSecurityCipher(cipher);
+        network_set_credentials(*this, 0, &creds, NULL);
+    }
+
+    void setCredentials(const char *ssid, unsigned ssidLen, const char *key, unsigned keyLen, const char *cert, unsigned certLen,
+            const char* caCert, unsigned caCertLen, unsigned long security = WPA2_ENT, unsigned long cipher = WLAN_CIPHER_NOT_SET) {
+        WLanCredentials creds;
+        memset(&creds, 0, sizeof(creds));
+        creds.size = sizeof(creds);
+        creds.ssid = ssid;
+        creds.ssid_len = ssidLen;
+        creds.key = key;
+        creds.key_len = keyLen;
+        creds.cert = cert;
+        creds.cert_len = certLen;
+        creds.ca_cert = caCert;
+        creds.ca_cert_len = caCertLen;
         creds.security = WLanSecurityType(security);
         creds.cipher = WLanSecurityCipher(cipher);
         network_set_credentials(*this, 0, &creds, NULL);

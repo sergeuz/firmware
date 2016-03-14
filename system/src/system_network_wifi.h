@@ -148,7 +148,7 @@ public:
 
         WLanSecurityType security = credentials->security;
 
-        if (0 == credentials->password[0])
+        if (security != WLAN_SEC_WPA_ENT && security != WLAN_SEC_WPA2_ENT && 0 == credentials->password[0])
         {
             security = WLAN_SEC_UNSEC;
         }

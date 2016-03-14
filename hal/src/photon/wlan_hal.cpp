@@ -38,10 +38,19 @@
 #include "delay_hal.h"
 #include "dct_hal.h"
 
+#include "wiced_supplicant.h"
+#include "wiced_tls.h"
+
 // dns.h includes a class member, which doesn't compile in C++
 #define class clazz
 #include "dns.h"
 #undef class
+
+// FIXME
+static wiced_tls_session_t tlsSession = { 0 };
+static const char* tlsClientKey = nullptr;
+static const char* tlsClientCert = nullptr;
+static const char* tlsCaCert = nullptr;
 
 bool initialize_dct(platform_dct_wifi_config_t* wifi_config, bool force=false)
 {
@@ -162,6 +171,29 @@ bool to_wiced_ip_address(wiced_ip_address_t& wiced, const dct_ip_address_v4_t& d
  */
 wlan_result_t wlan_connect_finalize()
 {
+    static const char* const eapIdentity = "photon";
+    wiced_tls_advanced_context_t tlsContext;
+    supplicant_workspace_t eapWorkspace;
+    bool tlsEnabled = false;
+    if (tlsClientKey && tlsClientCert && tlsCaCert) {
+        wiced_tls_init_advanced_context(&tlsContext, tlsClientCert, tlsClientKey);
+        if (tlsSession.length > 0 ) {
+            memcpy(&tlsContext.session, &tlsSession, sizeof(wiced_tls_session_t));
+        } else {
+            memset(&tlsContext.session, 0, sizeof(wiced_tls_session_t));
+        }
+        wiced_tls_init_root_ca_certificates(tlsCaCert);
+        if (besl_supplicant_init(&eapWorkspace, EAP_TYPE_TLS, WWD_STA_INTERFACE) == BESL_SUCCESS) {
+            wiced_supplicant_enable_tls(&eapWorkspace, &tlsContext);
+            besl_supplicant_set_identity(&eapWorkspace, eapIdentity, strlen(eapIdentity));
+            if (besl_supplicant_start(&eapWorkspace) != BESL_SUCCESS) {
+                ERROR("besl_supplicant_start() failed");
+            }
+        } else {
+            ERROR("besl_supplicant_init() failed");
+        }
+        tlsEnabled = true;
+    }
     // enable connection from stored profiles
     wlan_result_t result = wiced_interface_up(WICED_STA_INTERFACE);
     if (!result) {
@@ -186,10 +218,18 @@ wlan_result_t wlan_connect_finalize()
                 result = wiced_network_up(WICED_STA_INTERFACE, WICED_USE_EXTERNAL_DHCP_SERVER, NULL);
                 break;
         }
+        if (!result && tlsEnabled) {
+            memcpy(&tlsSession, &tlsContext.session, sizeof(wiced_tls_session_t));
+        }
     }
     else
     {
         wiced_network_down(WICED_STA_INTERFACE);
+    }
+    if (tlsEnabled) {
+        wiced_tls_deinit_context((wiced_tls_simple_context_t*)&tlsContext);
+        wiced_tls_deinit_root_ca_certificates();
+        besl_supplicant_deinit(&eapWorkspace);
     }
     // DHCP happens synchronously
     HAL_NET_notify_dhcp(!result);
@@ -380,6 +420,12 @@ wiced_security_t toSecurity(const char* ssid, unsigned ssid_len, WLanSecurityTyp
         case WLAN_SEC_WPA2:
             result = WPA2_SECURITY;
             break;
+        case WLAN_SEC_WPA_ENT:
+            result = WPA_SECURITY | ENTERPRISE_ENABLED;
+            break;
+        case WLAN_SEC_WPA2_ENT:
+            result = WPA2_SECURITY | ENTERPRISE_ENABLED;
+            break;
     }
 
     if (cipher & WLAN_CIPHER_AES)
@@ -409,8 +455,9 @@ bool equals_ssid(const char* ssid, wiced_ssid_t& current)
 }
 
 static bool wifi_creds_changed;
-wiced_result_t add_wiced_wifi_credentials(const char *ssid, uint16_t ssidLen, const char *password,
-    uint16_t passwordLen, wiced_security_t security, unsigned channel)
+wiced_result_t add_wiced_wifi_credentials(const char *ssid, uint16_t ssidLen, const char *password, uint16_t passwordLen,
+    const char* key, uint16_t keyLen, const char* cert, uint16_t certLen, const char* caCert, uint16_t caCertLen,
+    wiced_security_t security, unsigned channel)
 {
     platform_dct_wifi_config_t* wifi_config = NULL;
     wiced_result_t result = wiced_dct_read_lock( (void**) &wifi_config, WICED_TRUE, DCT_WIFI_CONFIG_SECTION, 0, sizeof(*wifi_config));
@@ -436,17 +483,25 @@ wiced_result_t add_wiced_wifi_credentials(const char *ssid, uint16_t ssidLen, co
         	}
         wiced_config_ap_entry_t& entry = wifi_config->stored_ap_list[replace];
         memset(&entry, 0, sizeof(entry));
-        passwordLen = std::min(passwordLen, uint16_t(64));
         ssidLen = std::min(ssidLen, uint16_t(32));
         memcpy(entry.details.SSID.value, ssid, ssidLen);
         entry.details.SSID.length = ssidLen;
-        if (security==WICED_SECURITY_WEP_PSK && passwordLen>1 && password[0]>4) {
-            // convert from hex to binary
-            entry.security_key_length = hex_decode((uint8_t*)entry.security_key, sizeof(entry.security_key), password);
-        }
-        else {
-            memcpy(entry.security_key, password, passwordLen);
-            entry.security_key_length = passwordLen;
+        if (security & ENTERPRISE_ENABLED) {
+            // FIXME
+            tlsClientKey = key;
+            tlsClientCert = cert;
+            tlsCaCert = caCert;
+        } else {
+            // Save credentials for non-enterprise AP
+            passwordLen = std::min(passwordLen, uint16_t(64));
+            if (security==WICED_SECURITY_WEP_PSK && passwordLen>1 && password[0]>4) {
+                // convert from hex to binary
+                entry.security_key_length = hex_decode((uint8_t*)entry.security_key, sizeof(entry.security_key), password);
+            }
+            else {
+                memcpy(entry.security_key, password, passwordLen);
+                entry.security_key_length = passwordLen;
+            }
         }
         entry.details.security = security;
         entry.details.channel = channel;
@@ -458,8 +513,9 @@ wiced_result_t add_wiced_wifi_credentials(const char *ssid, uint16_t ssidLen, co
     return result;
 }
 
-int wlan_set_credentials_internal(const char *ssid, uint16_t ssidLen, const char *password,
-    uint16_t passwordLen, WLanSecurityType security, WLanSecurityCipher cipher, unsigned channel, unsigned flags)
+int wlan_set_credentials_internal(const char *ssid, uint16_t ssidLen, const char *password, uint16_t passwordLen,
+    const char* key, uint16_t keyLen, const char* cert, uint16_t certLen, const char* caCert, uint16_t caCertLen,
+    WLanSecurityType security, WLanSecurityCipher cipher, unsigned channel, unsigned flags)
 {
     int result = WICED_ERROR;
     if (ssidLen>0 && ssid) {
@@ -471,7 +527,8 @@ int wlan_set_credentials_internal(const char *ssid, uint16_t ssidLen, const char
             result = WICED_SUCCESS;
         }
         else {
-            result = add_wiced_wifi_credentials(ssid, ssidLen, password, passwordLen, wiced_security_t(security_result), channel);
+            result = add_wiced_wifi_credentials(ssid, ssidLen, password, passwordLen, key, keyLen, cert, certLen,
+                    caCert, caCertLen, wiced_security_t(security_result), channel);
         }
     }
     return result;
@@ -485,8 +542,20 @@ int wlan_set_credentials(WLanCredentials* c)
     if (c->size>=32) {
         flags = c->flags;
     }
-    STATIC_ASSERT(wlan_credentials_size, sizeof(WLanCredentials)==32);
-    return wlan_set_credentials_internal(c->ssid, c->ssid_len, c->password, c->password_len, c->security, c->cipher, c->channel, flags);
+    // added key and certificates: size 56
+    const char* key = nullptr, *cert = nullptr, *caCert = nullptr;
+    unsigned keyLen = 0, certLen = 0, caCertLen = 0;
+    if (c->size >= 56) {
+        key = c->key;
+        keyLen = c->key_len;
+        cert = c->cert;
+        certLen = c->cert_len;
+        caCert = c->ca_cert;
+        caCertLen = c->ca_cert_len;
+    }
+    STATIC_ASSERT(wlan_credentials_size, sizeof(WLanCredentials)==56);
+    return wlan_set_credentials_internal(c->ssid, c->ssid_len, c->password, c->password_len, key, keyLen, cert, certLen,
+        caCert, caCertLen, c->security, c->cipher, c->channel, flags);
 }
 
 softap_handle current_softap_handle;
